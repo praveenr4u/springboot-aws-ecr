@@ -1,4 +1,4 @@
-name: Deploy spring boot to Amazon ECS
+name: Deploy to Amazon ECS
 
 on:
   push:
@@ -6,79 +6,44 @@ on:
       - main
   pull_request:
     branches:
-      - main
-
-env:
-  IMAGE_TAG: latest
-  AWS_REGION: us-east-2
-  ECS_CLUSTER: app_cluster
-  ECR_REPOSITORY: app_repo
-  CONTAINER_NAME: app
-  ECS_SERVICE: app_service
-  ECS_TD: .github/workflows/td.json
-  ECR_REGISTRY: 885578568250.dkr.ecr.us-east-2.amazonaws.com
-
-defaults:
-  run:
-    working-directory: ./springboot-aws-ecr
+        - main
 
 jobs:
   deploy:
-    name: Deploy
     runs-on: ubuntu-latest
-    environment: dev
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v2
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          aws-access-key-id: ${{secrets.AWS_ACCESS_KEY_ID}}
-          aws-secret-access-key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
-          aws-region: ${{env.AWS_REGION}}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: your-region
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Set up JDK 11
-        id: setup-jdk
-        uses: actions/setup-java@v3
+      - name: Build the Docker image
+        uses: docker/build-push-action@v2
         with:
-          distribution: 'corretto'
-          java-version: '11'
+          context: .
+          push: true
+          tags: 885578568250.dkr.ecr.us-east-2.amazonaws.com/app_repo:latest
+          build-args: |
+            JAR_FILE=target/*.jar
 
-      - name: Checkout and Prepare Step
-        uses: devonfw-actions/java-maven-setup@v8
-        with:
-          java-version: 8
-          run: |
-           mvn clean install
-
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: "885578568250.dkr.ecr.us-east-2.amazonaws.com"
-          ECR_REPOSITORY: "app_repo"
-          IMAGE_TAG: latest
+      - name: Deploy the Docker image to Amazon ECS
         run: |
-          sudo docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-         echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def-1
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ env.ECS_TD }}
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
+          docker push 885578568250.dkr.ecr.your-region.amazonaws.com/app_repo:latest
+          aws ecs update-service --cluster app_cluster --service app_service --force-new-deployment
 
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
-          task-definition: ${{ steps.task-def-1.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+            task-definition: ${{ steps.task-def-1.outputs.task-definition }}
+            service: ${{ env.ECS_SERVICE }}
+            cluster: ${{ env.ECS_CLUSTER }}
+            wait-for-service-stability: true
